@@ -1,9 +1,3 @@
 {
-    "roo-cline.vsCodeLmModelSelector": {
-        "vendor": "gpt-5",
-        "model": "gpt-5",
-        "baseUrl": "https://agentrouter.org/v1",
-        "api key": "sk-ncs33vGKUfsUr7vIBu6y7xareIZta90AJAHxc8InQRMu8Bso"
-
-    }
+    
 }
