@@ -1,0 +1,162 @@
+Dokumentasi penjelasan kelas dan fungsi utama di backend (CodeIgniter 4) dan frontend (Next.js) agar mudah dipelajari. Setiap referensi kode dan berkas dibuat dapat diklik ke baris lokasi.
+
+Backend — Controllers
+
+- [class AuthController extends BaseController](backend/app/Controllers/AuthController.php:10)
+  - Mengelola autentikasi: registrasi, verifikasi OTP, dan login. Memakai ResponseTrait untuk respons API standar.
+  - [private function getPayload(): array](backend/app/Controllers/AuthController.php:19)
+    - Mengambil payload request secara robust untuk JSON, raw input, maupun form-encoded POST. Mencegah error parsing JSON dan memberi fallback berurutan hingga data ditemukan.
+  - [public function register()](backend/app/Controllers/AuthController.php:51)
+    - Validasi input (name, email unik, password min 8). Membuat OTP 6 digit + masa berlaku 10 menit. Simpan user (hash password oleh callbacks di UserModel). Kirim email OTP via service email. Di non-production, mengembalikan OTP juga dalam respons untuk memudahkan testing.
+  - [public function verify_otp()](backend/app/Controllers/AuthController.php:127)
+    - Validasi email dan OTP. Cocokkan dengan database, cek kedaluwarsa. Jika valid, bersihkan kolom OTP dan respon sukses agar user bisa login.
+  - [public function login()](backend/app/Controllers/AuthController.php:170)
+    - Validasi email/password, pastikan OTP sudah diverifikasi (otp_code null), verifikasi password hash, lalu buat JWT HS256 (memakai jwt.secret dari environment) berisi uid, email, role, iat/exp dan kembalikan token.
+
+- [class DashboardController extends BaseController](backend/app/Controllers/DashboardController.php:10)
+  - Statistik akses dashboard dan pencatatan kunjungan pengguna.
+  - [public function getStats()](backend/app/Controllers/DashboardController.php:14)
+    - Insert kunjungan berdasarkan user_id dari token, hitung total user, total kunjungan, dan agregasi kunjungan untuk hari/minggu/bulan/tahun. Mengembalikan JSON metrik.
+  - [private function getUserIdFromToken()](backend/app/Controllers/DashboardController.php:46)
+    - Ambil Authorization: Bearer token, decode JWT dengan HS256, kembalikan uid. Catatan: duplikasi dengan UserController, idealnya dipindah ke BaseController/helper.
+
+- [class UserController extends BaseController](backend/app/Controllers/UserController.php:11)
+  - Mengelola profil pengguna dan perubahan password.
+  - [private function getUserIdFromToken()](backend/app/Controllers/UserController.php:15)
+    - Sama seperti DashboardController: decode JWT → uid.
+  - [private function getPayload(): array](backend/app/Controllers/UserController.php:27)
+    - Membaca JSON/raw input/POST secara aman (versi ringkas).
+  - [public function getProfile()](backend/app/Controllers/UserController.php:56)
+    - Ambil user via uid dari JWT, bentuk respons aman (id, name, email, role, timestamps opsional), tanpa field sensitif seperti password.
+  - [public function updateProfile()](backend/app/Controllers/UserController.php:86)
+    - Validasi name & email (email unik, kecuali diri sendiri). Normalisasi email (lowercase, trim), update, balikan pesan sukses/err model.
+  - [public function changePassword()](backend/app/Controllers/UserController.php:115)
+    - Validasi old/new/confirm password, verifikasi old terhadap hash di DB, update password baru (hash oleh model), respon sukses/err.
+
+- [class RoleController extends BaseController](backend/app/Controllers/RoleController.php:10)
+  - CRUD roles dan pengelolaan permissions per role.
+  - [public function index()](backend/app/Controllers/RoleController.php:15) — daftar semua roles.
+  - [public function show($id = null)](backend/app/Controllers/RoleController.php:22) — detail role, 404 bila tak ada.
+  - [public function create()](backend/app/Controllers/RoleController.php:33) — input JSON role_name/description, insert, 201 atau errors.
+  - [public function update($id = null)](backend/app/Controllers/RoleController.php:56) — update role, 200 atau errors.
+  - [public function delete($id = null)](backend/app/Controllers/RoleController.php:79) — hapus role (respondDeleted atau 404).
+  - [public function getPermissions($role_id = null)](backend/app/Controllers/RoleController.php:98) — baca daftar menu_id untuk role_id.
+  - [public function updatePermissions($role_id = null)](backend/app/Controllers/RoleController.php:106) — reset permissions lama dan insert batch menu_ids baru.
+
+- [class MenuController extends BaseController](backend/app/Controllers/MenuController.php:9)
+  - CRUD menu aplikasi (root/child).
+  - [public function index()](backend/app/Controllers/MenuController.php:14) — semua menu.
+  - [public function show($id = null)](backend/app/Controllers/MenuController.php:21) — detail menu, 404 bila tak ada.
+  - [public function create()](backend/app/Controllers/MenuController.php:32) — input JSON (menu_name, parent_id, url, icon, order), insert, 201 atau errors.
+  - [public function update($id = null)](backend/app/Controllers/MenuController.php:60) — update menu, 200 atau errors.
+  - [public function delete($id = null)](backend/app/Controllers/MenuController.php:88) — hapus menu (respondDeleted atau 404).
+
+- [class Home extends BaseController](backend/app/Controllers/Home.php:5)
+  - [public function index(): string](backend/app/Controllers/Home.php:7)
+    - Halaman root “/” sederhana. Cocok untuk health-check atau welcome message.
+
+- [abstract class BaseController extends Controller](backend/app/Controllers/BaseController.php:22)
+  - [public function initController(RequestInterface $request, ResponseInterface $response, LoggerInterface $logger)](backend/app/Controllers/BaseController.php:49)
+    - Hook init umum untuk semua controller; tempat menyiapkan dependency shared (session, helpers, dsb) bila dibutuhkan.
+
+Backend — Models
+
+- [class UserModel extends Model](backend/app/Models/UserModel.php:7)
+  - Tabel: [users](backend/app/Models/UserModel.php:9)
+  - Kolom mass-assignment: [name, email, password, role_id, otp_code, otp_expires_at, remember_token](backend/app/Models/UserModel.php:15)
+  - Timestamps aktif: [created_at, updated_at](backend/app/Models/UserModel.php:18)
+  - Callbacks hashing:
+    - Dipicu sebelum insert/update: [beforeInsert, beforeUpdate](backend/app/Models/UserModel.php:31)
+    - [protected function hashPassword(array $data)](backend/app/Models/UserModel.php:34)
+      - Jika field password ada, di-hash via password_hash (bcrypt default) sebelum tersimpan.
+
+- [class RoleModel extends Model](backend/app/Models/RoleModel.php:7)
+  - Tabel: [roles](backend/app/Models/RoleModel.php:9)
+  - Kolom: [role_name, description](backend/app/Models/RoleModel.php:15)
+  - Timestamps: [created_at, updated_at](backend/app/Models/RoleModel.php:18)
+
+- [class MenuModel extends Model](backend/app/Models/MenuModel.php:7)
+  - Tabel: [menus](backend/app/Models/MenuModel.php:9)
+  - Kolom: [menu_name, parent_id, url, icon, menu_order](backend/app/Models/MenuModel.php:15)
+  - Timestamps: [created_at, updated_at](backend/app/Models/MenuModel.php:18)
+
+- [class RolePermissionModel extends Model](backend/app/Models/RolePermissionModel.php:7)
+  - Tabel pivot: [role_permissions](backend/app/Models/RolePermissionModel.php:9)
+  - Kolom: [role_id, menu_id](backend/app/Models/RolePermissionModel.php:15)
+
+- [class DashboardVisitModel extends Model](backend/app/Models/DashboardVisitModel.php:7)
+  - Tabel: [dashboard_visits](backend/app/Models/DashboardVisitModel.php:9)
+  - Kolom: [user_id, visited_at](backend/app/Models/DashboardVisitModel.php:15)
+
+Backend — Filter & Konfigurasi
+
+- [class JWTFilter implements FilterInterface](backend/app/Filters/JWTFilter.php:12)
+  - [before(...)](backend/app/Filters/JWTFilter.php:14):
+    - Melewatkan OPTIONS (preflight CORS), ekstrak token Bearer dari Authorization, validasi keberadaan secret, decode JWT (signature + exp). Bila hilang/tidak valid, balas 401; jika secret hilang, 500.
+  - [after(...)](backend/app/Filters/JWTFilter.php:56): kosong.
+
+- [class Cors extends BaseConfig](backend/app/Config/Cors.php:12)
+  - Kebijakan CORS default yang mengizinkan asal localhost/127.0.0.1/192.168.x.x, header umum termasuk Authorization, metode GET/POST/PUT/PATCH/DELETE/OPTIONS, maxAge 7200. Memastikan frontend dan backend lintas-origin tetap bisa berkomunikasi.
+
+- [Routes.php](backend/app/Config/Routes.php:1)
+  - Grup `/api`:
+    - Public: [POST /register](backend/app/Config/Routes.php:12), [POST /verify-otp](backend/app/Config/Routes.php:13), [POST /login](backend/app/Config/Routes.php:14)
+    - Protected (filter jwt): [GET /dashboard/stats](backend/app/Config/Routes.php:17), [GET/PUT /profile](backend/app/Config/Routes.php:20), [PUT /profile/change-password](backend/app/Config/Routes.php:22), [resource menus](backend/app/Config/Routes.php:25), [resource roles](backend/app/Config/Routes.php:28), [roles/{id}/permissions GET](backend/app/Config/Routes.php:29), [roles/{id}/permissions POST](backend/app/Config/Routes.php:30)
+
+- [class Validation extends BaseConfig](backend/app/Config/Validation.php:11)
+  - Mendaftarkan RuleSets bawaan (Rules, FormatRules, FileRules, CreditCardRules) dan template error. Rules spesifik ditetapkan di masing-masing controller saat validasi.
+
+- [class Services extends BaseService](backend/app/Config/Services.php:20)
+  - Tempat override/definisi service aplikasi. Saat ini kosong; contoh pemakaian email service terlihat di AuthController.
+
+Frontend — Library & Contexts
+
+- [frontend/src/lib/api.ts](frontend/src/lib/api.ts:1)
+  - [const api = axios.create(...)](frontend/src/lib/api.ts:3)
+    - BaseURL backend CI4 [http://localhost:9000/api](frontend/src/lib/api.ts:4), header JSON.
+  - [api.interceptors.request.use(...)](frontend/src/lib/api.ts:11)
+    - Menyisipkan Authorization Bearer dari localStorage pada setiap request jika tersedia.
+
+- [frontend/src/contexts/AuthContext.tsx](frontend/src/contexts/AuthContext.tsx:1)
+  - [interface User](frontend/src/contexts/AuthContext.tsx:6) — bentuk data id, name, email, role.
+  - [interface AuthContextType](frontend/src/contexts/AuthContext.tsx:13) — menyediakan user, token, login(), logout(), isAuthenticated.
+  - [AuthProvider](frontend/src/contexts/AuthContext.tsx:23)
+    - Restore token dari localStorage pada mount, fetch profil via [GET /profile](frontend/src/contexts/AuthContext.tsx:36) jika token ada (setUser atau logout jika invalid). login() menyimpan token, logout() menghapus token. isAuthenticated adalah boolean dari token.
+  - [useAuth()](frontend/src/contexts/AuthContext.tsx:69)
+    - Hook untuk mengakses context; error jika dipakai di luar provider.
+
+Frontend — Komponen Proteksi
+
+- [frontend/src/components/ProtectedRoute.tsx](frontend/src/components/ProtectedRoute.tsx:1)
+  - [ProtectedRoute](frontend/src/components/ProtectedRoute.tsx:7)
+    - Jika belum authenticated, redirect ke /login dan tampilkan “Loading…”. Jika sudah, render children. Memanfaatkan useAuth() + useRouter() pada App Router.
+
+Frontend — Pages Utama
+
+- [frontend/src/app/login/page.tsx](frontend/src/app/login/page.tsx:1)
+  - Form login (email/password). Submit ke [POST /api/login](frontend/src/app/login/page.tsx:21). Jika sukses, simpan token via [useAuth().login](frontend/src/app/login/page.tsx:23) dan redirect ke [/dashboard](frontend/src/app/login/page.tsx:24). Tampilkan error bila gagal.
+
+- [frontend/src/app/register/page.tsx](frontend/src/app/register/page.tsx:1)
+  - Dua langkah: form pendaftaran [POST /api/register](frontend/src/app/register/page.tsx:25) lalu verifikasi OTP [POST /api/verify-otp](frontend/src/app/register/page.tsx:40). Di non-prod, OTP ditampilkan untuk testing. Setelah verifikasi, redirect ke /login.
+
+- [frontend/src/app/dashboard/page.tsx](frontend/src/app/dashboard/page.tsx:1)
+  - Mengambil [GET /api/dashboard/stats](frontend/src/app/dashboard/page.tsx:27) dan menampilkan metrik total user, total akses, serta kunjungan per periode. Dilindungi oleh [ProtectedRoute](frontend/src/app/dashboard/page.tsx:47).
+
+- [frontend/src/app/menus/page.tsx](frontend/src/app/menus/page.tsx:1)
+  - Mengambil daftar menu [GET /api/menus](frontend/src/app/menus/page.tsx:26), menyusun root (parent_id=0) dan anak berdasarkan parent_id, lalu menampilkan daftar bersarang dengan tautan bila URL tersedia. Dilindungi oleh [ProtectedRoute](frontend/src/app/menus/page.tsx:75).
+
+- [frontend/src/app/roles/page.tsx](frontend/src/app/roles/page.tsx:1)
+  - Saat ini placeholder sederhana. Dapat dikembangkan untuk CRUD roles dan manajemen permissions menggunakan endpoint roles/permissions di backend.
+
+Catatan praktik baik yang dapat ditiru
+- Validasi input di controller sebelum operasi DB, normalisasi email, dan memisahkan tanggung jawab antara controller (orkestrasi) dan model (transformasi, mis. hashing).
+- JWT untuk proteksi endpoint, disisipkan otomatis di request frontend lewat interceptor.
+- CORS dikonfigurasi agar frontend di port berbeda tetap dapat mengakses backend.
+- Penggunaan ProtectedRoute untuk gating halaman secure di sisi client.
+
+Keterkaitan penting Frontend ↔ Backend
+- Login menghasilkan JWT dari [AuthController.login()](backend/app/Controllers/AuthController.php:170); token disimpan di localStorage lalu dikirim otomatis via [api.interceptors](frontend/src/lib/api.ts:11).
+- Profil user di-load dari endpoint protected [GET /api/profile](backend/app/Config/Routes.php:20) pada [AuthProvider](frontend/src/contexts/AuthContext.tsx:36).
+- Dashboard dan Menus halaman memanggil endpoint protected yang dilindungi [JWTFilter](backend/app/Filters/JWTFilter.php:12).
+
+Dokumentasi ini selesai dan siap dipakai sebagai pegangan belajar arsitektur dan alur aplikasi backend–frontend di proyek ini.
